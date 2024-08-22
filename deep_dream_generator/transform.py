@@ -1,4 +1,3 @@
-import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,7 +5,6 @@ import torchvision.models as models
 from torchvision.transforms import transforms
 from PIL import Image
 import numpy as np
-import matplotlib.pyplot as plt
 
 def _transform(model, layer_index, image_path, iterations, learning_rate):
   image_transforms = transforms.Compose([
@@ -17,17 +15,16 @@ def _transform(model, layer_index, image_path, iterations, learning_rate):
   device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
   image = Image.open(image_path).convert("RGB")
   image = image_transforms(image)
-  image = image.unsqueeze(0).to(device) # add batch dimension
-  image.requires_grad = True
-  model = model.to(device).eval()
+  image = image.unsqueeze(0).requires_grad_().to(device) # add batch dimension
+  model = model.to(device)
 
   for iteration in range(iterations):
     print(f"running on iteration {iteration}")
     model.zero_grad()
     out = image
-    for idx, layer in model.features.named_children():
+    for index, layer in model.features.named_children():
       out = layer(out)
-      if idx == layer_index:
+      if index == layer_index:
         break
     loss = out.norm()
     loss.backward()
@@ -35,13 +32,13 @@ def _transform(model, layer_index, image_path, iterations, learning_rate):
       image += learning_rate * image.grad
       image.grad.zero_()
 
-    return image
+  return image
 
 def deepdream(image_path):
-  model = models.vgg16()
+  model = models.vgg16(pretrained=True)
   layer_index = 28
-  iterations = 30
-  learning_rate = 0.01
+  iterations = 100
+  learning_rate = 0.02
   try:
     image = _transform(model, layer_index, image_path, iterations, learning_rate)
     image = image.squeeze(0).cpu().detach().numpy()
@@ -54,6 +51,7 @@ def deepdream(image_path):
     image = Image.fromarray((image * 255).astype(np.uint8))
     result_path = f"static/transformed_{image_path.split('/')[-1]}"
     image.save(result_path)
+    # image.show()
     return result_path
 
   except Exception as e:

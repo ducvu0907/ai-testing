@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request,   render_template, jsonify, url_for
+from flask import Flask, request, render_template, jsonify
 from werkzeug.utils import secure_filename
 from transform import deepdream
 app = Flask(__name__)
