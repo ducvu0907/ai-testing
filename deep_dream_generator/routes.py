@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request,   render_template, jsonify, send_from_directory
+from flask import Flask, request,   render_template, jsonify, url_for
 from werkzeug.utils import secure_filename
 from transform import deepdream
 app = Flask(__name__)
@@ -24,4 +24,5 @@ def upload_file():
     filename = secure_filename(image.filename)
     filepath = os.path.join("uploads", filename)
     image.save(filepath)
-    result = deepdream(filepath)
+    result_path = deepdream(filepath)
+    return jsonify({"src": f"http://localhost:5000/{result_path}"})

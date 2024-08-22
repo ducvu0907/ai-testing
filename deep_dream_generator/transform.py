@@ -21,7 +21,8 @@ def _transform(model, layer_index, image_path, iterations, learning_rate):
   image.requires_grad = True
   model = model.to(device).eval()
 
-  for iter in range(iterations):
+  for iteration in range(iterations):
+    print(f"running on iteration {iteration}")
     model.zero_grad()
     out = image
     for idx, layer in model.features.named_children():
@@ -39,7 +40,7 @@ def _transform(model, layer_index, image_path, iterations, learning_rate):
 def deepdream(image_path):
   model = models.vgg16()
   layer_index = 28
-  iterations = 100
+  iterations = 30
   learning_rate = 0.01
   try:
     image = _transform(model, layer_index, image_path, iterations, learning_rate)
@@ -48,18 +49,12 @@ def deepdream(image_path):
     mean, std = np.array([0.485, 0.456, 0.406]), np.array([0.229, 0.224, 0.225])
     image = image * std + mean
     image = np.clip(image, 0, 1)
-    plt.imshow(image)
 
     # save
     image = Image.fromarray((image * 255).astype(np.uint8))
-    result_filename = f"transformed_{image_path.split('/')[-1]}"
-    print(result_filename)
-    image.save(f"uploads/{result_filename}")
-    return result_filename
+    result_path = f"static/transformed_{image_path.split('/')[-1]}"
+    image.save(result_path)
+    return result_path
 
   except Exception as e:
     print(f"An error occured: {e}")
-
-# testing
-if __name__ == "__main__":
-  pass

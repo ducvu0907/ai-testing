@@ -43,11 +43,11 @@
   <div class="container">
     <h1>Deep Dream Generator</h1>
     <form id="uploadForm" enctype="multipart/form-data">
-      <input type="file" id="imageInput" name="image" accept="image/*" required>
-      <button type="submit" onclick="uploadImage()">transform</button>
+      <input type="file" id="imageInput" name="image" accept="image/*" />
+      <button type="button" onclick="uploadImage()">transform</button>
     </form>
     <div id="result">
-
+      <!-- result goes here -->
     </div>
   </div>
 
@@ -64,7 +64,9 @@
         if (data.error) {
           throw new Error(data.error);
         }
-        console.log(data);
+        result = document.createElement("img");
+        result.src = data.src;
+        document.getElementById("result").appendChild(result);
 
       } catch (error) {
         alert(error.message);
