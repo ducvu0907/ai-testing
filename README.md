@@ -1,3 +1,3 @@
 # AI Testing
 
-Some notebooks of my implementation for ai algorithms
+Some of my notebooks for testing ai algorithms/models

@@ -1,7 +1,7 @@
 import numpy as np
 from random import uniform
 
-# based on Karpathy's min char rnn
+# based on Karpathy's min-char-rnn
 data = open("input.txt", 'r').read()
 chars = list(set(data))
 data_size, vocab_size = len(data), len(chars)
@@ -15,7 +15,7 @@ learning_rate = 1e-1
 Wf = np.random.randn(hidden_size, hidden_size + vocab_size) * 0.01 # forget gate
 Wi = np.random.randn(hidden_size, hidden_size + vocab_size) * 0.01 # input gate
 Wo = np.random.randn(hidden_size, hidden_size + vocab_size) * 0.01 # output gate
-Wcd = np.random.randn(hidden_size, hidden_size + vocab_size) * 0.01 # candidate gate
+Wcd = np.random.randn(hidden_size, hidden_size + vocab_size) * 0.01 # candidate
 
 bf = np.zeros((hidden_size, 1))
 bo = np.zeros((hidden_size, 1))
@@ -154,7 +154,7 @@ def grad_check(inputs, targets, hprev, cprev):
       print(f"{grad_numerical}, {grad_analytic} => {rel_error}")
 
 # simple grad check wrapper
-def initial_grad_check():
+def init_grad_check():
   inputs = [char_to_ix[ch] for ch in data[:block_size]]
   targets = [char_to_ix[ch] for ch in data[1:block_size+1]]
   hprev = np.zeros((hidden_size, 1))
@@ -163,7 +163,8 @@ def initial_grad_check():
 
 
 if __name__ == "__main__":
-  initial_grad_check()
+  init_grad_check()
+
   n, p = 0, 0
   mWf = np.zeros_like(Wf)
   mbf = np.zeros_like(bf)
@@ -196,12 +197,12 @@ if __name__ == "__main__":
     if n % 1000 == 0:
       print(f"loss: {smooth_loss}, iter: {n}")
     
-    # perform parameter update with adagrad
+    # update parameters
     for param, dparam, mem in zip([Wf, Wi, Wcd, Wo, Wy, bf, bi, bo, by], 
                                   [dWf, dWi, dWcd, dWo, dWy, dbf, dbi, dbo, dby], 
                                   [mWf, mWi, mWcd, mWo, mWy, mbf, mbi, mbo, mby]):
       mem += dparam * dparam
-      param += -learning_rate * dparam / np.sqrt(mem + 1e-8) # adagrad update
+      param += -learning_rate * dparam / np.sqrt(mem + 1e-8) # adagrad
 
     p += block_size # move data pointer
     n += 1 # iteration counter
