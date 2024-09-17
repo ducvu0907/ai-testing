@@ -1,3 +1,4 @@
+# few sketches of the model implementation, needs sanity check
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -97,65 +98,40 @@ class AttnDecoder(nn.Module):
     self.fc = nn.Linear(embed_size + hidden_size + hidden_size * 2, output_size) # input embedded + gru output + context vector
     self.dropout = nn.Dropout(dropout_p)
   
-  # def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
-  #   batch_size = encoder_outputs.shape[0]
-  #   decoder_input = torch.empty(batch_size, 1, dtype=torch.long).fill_(SOS_TOKEN) # first start token (batch_size, 1)
-  #   decoder_hidden = encoder_hidden
-  #   decoder_outputs = []
-  #   attentions = []
-  #
-  #   for i in range(MAX_LENGTH):
-  #     decoder_output, decoder_hidden, attn_weights = self.forward_step(decoder_input, decoder_hidden, encoder_outputs)
-  #     decoder_outputs.append(decoder_output)
-  #     attentions.append(attn_weights)
-  #     if target_tensor is not None:
-  #       decoder_input = target_tensor[:, i].unsqueeze(1) # teacher forcing
-  #     else:
-  #       decoder_input = decoder_output.argmax(dim=-1, keepdim=True).squeeze(-1) # top 1
-  #   
-  #   decoder_outputs = torch.cat(decoder_outputs, dim=1) # (batch_size, seq_length, output_size)
-  #   decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
-  #   attentions = torch.cat(attentions, dim=1)
-  #
-  #   return decoder_outputs
-  #
-  # def forward_step(self, input, hidden, encoder_outputs):
-  #   # input: (batch_size, 1)
-  #   # hidden: (batch_size, hidden_size)
-  #   # encoder_outputs: (batch_size, seq_length, hidden_size * 2)
-  #   embedded = self.dropout(self.embedding(input)) # (batch_size, 1, embed_size)
-  #   context, attn_weights = self.attention(hidden, encoder_outputs)
-  #   # context: (batch_size, 1, hidden_size * 2)
-  #   # attn_weights: (batch_size, seq_length)
-  #   input_gru = torch.cat([embedded, context], dim=2) # (batch_size, 1, embed_size + hidden_size * 2)
-  #   output_gru, hidden = self.gru(input_gru, hidden.unsqueeze(0))
-  #   # output_gru: (batch_size, 1, hidden_size)
-  #   # hidden: (1, batch_size, hidden_size)
-  #   hidden = hidden.squeeze(0) # (batch_size, hidden_size)
-  #   output = self.fc(torch.cat([embedded, output_gru, context], dim=2)) # (batch_size, 1, output_size)
-  #   return output, hidden, attn_weights
-
-  def forward(self, input, hidden, encoder_outputs):
+  def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
+    batch_size = encoder_outputs.shape[0]
+    decoder_input = torch.empty(batch_size, 1, dtype=torch.long).fill_(SOS_TOKEN) # first start token (batch_size, 1)
+    decoder_hidden = encoder_hidden
+    decoder_outputs = []
+    attentions = []
+  
+    for i in range(MAX_LENGTH):
+      decoder_output, decoder_hidden, attn_weights = self.forward_step(decoder_input, decoder_hidden, encoder_outputs)
+      decoder_outputs.append(decoder_output)
+      attentions.append(attn_weights)
+      if target_tensor is not None:
+        decoder_input = target_tensor[:, i].unsqueeze(1) # teacher forcing
+      else:
+        decoder_input = decoder_output.argmax(dim=-1, keepdim=True).squeeze(-1) # top 1
+    
+    decoder_outputs = torch.cat(decoder_outputs, dim=1) # (batch_size, seq_length, output_size)
+    decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
+    attentions = torch.cat(attentions, dim=1)
+  
+    return decoder_outputs
+  
+  def forward_step(self, input, hidden, encoder_outputs):
+    # input: (batch_size, 1)
     # hidden: (batch_size, hidden_size)
-    # encoder_outputs: (batch_size, seq_length, hidden_size*2)
+    # encoder_outputs: (batch_size, seq_length, hidden_size * 2)
     embedded = self.dropout(self.embedding(input)) # (batch_size, 1, embed_size)
     context, attn_weights = self.attention(hidden, encoder_outputs)
     # context: (batch_size, 1, hidden_size * 2)
-    # attn_weights: (batch_size, seq_len)
-    gru_input = torch.cat([embedded, context], dim=2)
-    output, hidden = self.gru(gru_input, hidden.unsqueeze(0))
-    # output: (batch_size, 1, hidden_size)
+    # attn_weights: (batch_size, seq_length)
+    input_gru = torch.cat([embedded, context], dim=2) # (batch_size, 1, embed_size + hidden_size * 2)
+    output_gru, hidden = self.gru(input_gru, hidden.unsqueeze(0))
+    # output_gru: (batch_size, 1, hidden_size)
     # hidden: (1, batch_size, hidden_size)
-    pred = self.fc(torch.cat([embedded, output, context], dim=2))
-    return pred, hidden, attn_weights
-
-
-
-class Seq2Seq(nn.Module):
-  def __init__(self, encoder, decoder):
-    self.encoder = encoder
-    self.decoder = decoder
-
-  
-  def forward(self, source, target, teacher_forcing_ratio=0.5):
-    pass
+    hidden = hidden.squeeze(0) # (batch_size, hidden_size)
+    output = self.fc(torch.cat([embedded, output_gru, context], dim=2)) # (batch_size, 1, output_size)
+    return output, hidden, attn_weights
