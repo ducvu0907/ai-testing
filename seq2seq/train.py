@@ -7,10 +7,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 import datasets
 import spacy
-import torch.utils
-import torch.utils.data
+from torch.utils.data import Dataset, DataLoader
 import tqdm
-import random
+import math
+from heapq import heappush, heappop
 
 device = torch.device("cuda" if torch.cpu.is_available() else "cpu")
 dataset = datasets.load_dataset("bentrevett/multi30k")
@@ -62,13 +62,23 @@ def build_vocab(token_lists, min_freq=1):
 en_vocab = build_vocab(train_data["en_tokens"])
 de_vocab = build_vocab(train_data["de_tokens"])
 
+pad_index = en_vocab[pad_token]
+unk_index = en_vocab[unk_token]
+sos_index = en_vocab[sos_token]
+eos_index = en_vocab[eos_token]
+
+assert en_vocab[pad_token] == de_vocab[pad_token]
+assert en_vocab[unk_token] == de_vocab[unk_token]
+assert en_vocab[sos_token] == de_vocab[sos_token]
+assert en_vocab[eos_token] == de_vocab[eos_token]
+
 def text_to_ids(texts, vocab):
-  return [[vocab.get(token, vocab[unk_token]) for token in text] for text in texts]
+  return [[vocab.get(token, unk_index) for token in text] for text in texts]
 
 en_ids = text_to_ids(train_data["en_tokens"], en_vocab)
 de_ids = text_to_ids(train_data["de_tokens"], de_vocab)
 
-class TranslationDataset(torch.utils.data.Dataset):
+class TranslationDataset(Dataset):
   def __init__(self, src, tgt, src_vocab, tgt_vocab):
     self.src = src
     self.tgt = tgt
@@ -83,13 +93,21 @@ class TranslationDataset(torch.utils.data.Dataset):
   def __getitem__(self, idx):
     src_ids = self.src[idx]
     tgt_ids = self.tgt[idx]
-    # padding
-    src_ids = src_ids + [self.src_vocab[pad_token]] * (self.src_max_length - len(src_ids))
-    tgt_ids = tgt_ids + [self.tgt_vocab[pad_token]] * (self.tgt_max_length - len(tgt_ids))
+    # padding sequence
+    src_ids = src_ids + [pad_index] * (self.src_max_length - len(src_ids))
+    tgt_ids = tgt_ids + [pad_index] * (self.tgt_max_length - len(tgt_ids))
     src_tensor = torch.tensor(src_ids, dtype=torch.long)
     tgt_tensor = torch.tensor(tgt_ids, dtype=torch.long)
 
     return src_tensor, tgt_tensor
+
+def get_data_loader(data, batch_size, shuffle):
+  data = data.map(tokenize_data, fn_kwargs=fn_kwargs)
+  en_ids = text_to_ids(data["en_tokens"], en_vocab)
+  de_ids = text_to_ids(data["de_tokens"], de_vocab)
+  dataset = TranslationDataset(en_ids, de_ids, en_vocab, de_vocab)
+  data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+  return data_loader
 
 # model architecture
 class Encoder(nn.Module):
@@ -120,15 +138,15 @@ class BahdanauAttention(nn.Module):
   def forward(self, hidden, encoder_outputs):
     # hidden: (batch_size, hidden_size)
     # encoder_outputs: (seq_length, batch_size, hidden_size*2)
-    seq_len = encoder_outputs.shape[0]
-    hidden = hidden.unsqueeze(1).repeat(1, seq_len, 1)  # (batch_size, seq_length, hidden_size)
+    seq_length = encoder_outputs.shape[0]
+    hidden = hidden.unsqueeze(1).repeat(1, seq_length, 1)  # (batch_size, seq_length, hidden_size)
     encoder_outputs = encoder_outputs.permute(1, 0, 2)  # (batch_size, seq_length, hidden_size * 2)
     # calculate alignment scores
     energy = F.relu(self.wa(hidden) + self.ua(encoder_outputs))  # (batch_size, seq_length, hidden_size)
     scores = self.va(energy)  # (batch_size, seq_length, 1)
     scores = scores.squeeze(2)  # (batch_size, seq_length)
     
-    # calculate the attention weights (prob) from alignment scores
+    # calculate the attention weights
     attn_weights = F.softmax(scores, dim=-1)  # (batch_size, seq_length)
     
     # calculate context vector
@@ -190,7 +208,7 @@ class Seq2Seq(nn.Module):
       # hidden: (batch_size, hidden_size)
       outputs[t] = output
       top1 = output.argmax(dim=1)
-      input = target[t] if random.random() < teacher_force_ratio else top1
+      input = target[t] if np.random.random() < teacher_force_ratio else top1
     return outputs
 
 def train_fn(model, dataloader, optimizer, criterion, clip=4.0):
@@ -208,12 +226,13 @@ def train_fn(model, dataloader, optimizer, criterion, clip=4.0):
     tgt = tgt.contiguous().view(-1)  # (target_seq_length*batch_size)
     loss = criterion(output, tgt)
     total_loss += loss.item()
+    perplexity = math.exp(loss.item())
     loss.backward()
     output = output.argmax(dim=-1)
     nn.utils.clip_grad_norm_(model.parameters(), clip) # gradient clipping
     optimizer.step()
     if (idx + 1) % 50 == 0:
-      print(f"loss: {loss.item()}")
+      print(f"loss: {loss.item()}, perplexity: {perplexity}")
 
   return total_loss / len(dataloader)
   
@@ -229,8 +248,7 @@ encoder = Encoder(INPUT_DIM, EMBEDDING_DIM, HIDDEN_DIM, N_LAYERS, DROPOUT).to(de
 decoder = Decoder(OUTPUT_DIM, EMBEDDING_DIM, HIDDEN_DIM, N_LAYERS, DROPOUT).to(device)
 model = Seq2Seq(encoder, decoder).to(device)
 
-train_dataset = TranslationDataset(en_ids, de_ids, en_vocab, de_vocab)
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True)
+train_loader = get_data_loader(train_data, batch_size=64, shuffle=True)
 
 optimizer = optim.Adam(model.parameters())
 criterion = nn.CrossEntropyLoss(ignore_index=en_vocab[pad_token]) # ignore padding token
@@ -278,37 +296,35 @@ def eval_fn(model, dataloader, criterion):
 en_itos = {idx:token for token, idx in en_vocab.items()}
 de_itos = {idx:token for token, idx in de_vocab.items()}
 
-
+# greedy search translation
+@torch.no_grad()
 def greedy_decode(model, sentence, max_length=50):
   model.eval()
   tokens = [token.text.lower() for token in en_nlp.tokenizer(sentence)]
-  token_ids = [en_vocab[sos_token]] + [en_vocab[token] for token in tokens] + [en_vocab[eos_token]]
+  token_ids = [sos_index] + [en_vocab[token] for token in tokens] + [eos_index]
   source = torch.tensor(token_ids, dtype=torch.long).unsqueeze(1).to(device) # (seq_length, 1)
 
-  with torch.no_grad():
-    encoder_outputs, hidden = model.encoder(source)
+  encoder_outputs, hidden = model.encoder(source)
 
-  target_ids = [de_vocab[sos_token]]
+  target_ids = [sos_index]
   attentions = [] # containing attention score of each target token to all source tokens
 
-  for t in range(max_length):
+  for _ in range(max_length):
     input = torch.tensor([target_ids[-1]], dtype=torch.long)
-    with torch.no_grad():
-      output, hidden, attention = model.decoder(input, hidden, encoder_outputs) 
-      # output: (1, output_size)
-      # hidden: (1, hidden_size)
-      # attention: (1, source_seq_length)
+    output, hidden, attention = model.decoder(input, hidden, encoder_outputs) 
+    # output: (1, output_size)
+    # hidden: (1, hidden_size)
+    # attention: (1, source_seq_length)
+    output_id = output.argmax(dim=-1)
+    target_ids.append(output_id.item())
+    attentions.append(attention.squeeze(0).item())
 
-      output_id = output.argmax(dim=-1)
-      target_ids.append(output_id.item())
-      attentions.append(attention.squeeze(0).item())
-
-      if output_id == de_vocab[eos_token] or t >= max_length:
-        break
+    if output_id == de_vocab[eos_token]:
+      break
   
+  # attentions: (target_seq_length, source_seq_length)
   target_tokens = [de_itos[id] for id in target_ids]
-  return target_tokens, attentions # attentions: (target_seq_length, source_seq_length)
-
+  return target_tokens, attentions
 
 def visualize_attention_scores(source, target, attentions):
   plt.figure(figsize=(16, 10))
@@ -317,6 +333,40 @@ def visualize_attention_scores(source, target, attentions):
   plt.ylabel("output text")
   plt.show()
 
-# TODO: might implement beam search
-def beam_decode(model, sentence, max_length=50, max_depth=3):
-  pass
+# beam search translation
+@torch.no_grad()
+def beam_decode(model, sentence, max_length=50, beam_width=5):
+  model.eval()
+  tokens = [token.text.lower() for token in sentence]
+  token_ids = [sos_index] + [en_vocab[token] for token in tokens] + [eos_index]
+  source = torch.tensor(token_ids, dtype=torch.long).unsqueeze(1).to(device) # (seq_length, 1)
+
+  encoder_outputs, hidden = model.encoder(source)
+  queue = [(0, [sos_index]),] # sequence, log probability
+  result_sequences = []
+
+  for _ in range(max_length):
+    if not queue:
+      break
+    score, curr_seq = heappop(queue)
+    input = torch.tensor(curr_seq[-1], dtype=torch.long).to(device) # (1,)
+    output, hidden, _ = model.decoder(input, hidden, encoder_outputs)
+    # output: (1, output_size)
+    # hidden: (1, hidden_size)
+    # attention: (1, source_seq_length)
+    topk = torch.topk(output, beam_width, dim=-1) # topk
+
+    for i in range(len(topk)):
+      new_score = score - topk.values[0][i].item() # log prob, minus because of max-heap
+      new_seq = curr_seq + [topk.indices[0][i].item()]
+
+      if new_seq[-1] == eos_index:
+        result_sequences.append((-new_score, new_seq))
+      else:
+        heappush(queue, (new_score, new_seq))
+
+    # remove branches
+    while len(queue) > beam_width:
+      heappop(queue)
+      
+  return max(result_sequences, key=lambda x: x[0])[1] if result_sequences else heappop(queue)[1]
