@@ -93,7 +93,7 @@ class TranslationDataset(Dataset):
   def __getitem__(self, idx):
     src_ids = self.src[idx]
     tgt_ids = self.tgt[idx]
-    # padding sequence
+    # post padding
     src_ids = src_ids + [pad_index] * (self.src_max_length - len(src_ids))
     tgt_ids = tgt_ids + [pad_index] * (self.tgt_max_length - len(tgt_ids))
     src_tensor = torch.tensor(src_ids, dtype=torch.long)
@@ -296,7 +296,7 @@ def eval_fn(model, dataloader, criterion):
 en_itos = {idx:token for token, idx in en_vocab.items()}
 de_itos = {idx:token for token, idx in de_vocab.items()}
 
-# greedy search translation
+# greedy search
 @torch.no_grad()
 def greedy_decode(model, sentence, max_length=50):
   model.eval()
@@ -333,7 +333,7 @@ def visualize_attention_scores(source, target, attentions):
   plt.ylabel("output text")
   plt.show()
 
-# beam search translation
+# beam search
 @torch.no_grad()
 def beam_decode(model, sentence, max_length=50, beam_width=5):
   model.eval()
