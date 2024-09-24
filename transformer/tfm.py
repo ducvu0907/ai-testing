@@ -293,10 +293,36 @@ def train_fn(model, dataloader, optimizer, criterion, clip):
     torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
     optimizer.step()
     print(f"iter: {i}, loss: {loss.item():.4f}")
+
   return epoch_loss / len(dataloader)
 
 def eval_fn(model, dataloader, criterion):
-  pass
+  model.eval()
+  total_loss = 0
+  with torch.no_grad():
+    for i, (src, tgt) in tqdm(dataloader):
+      src, tgt = src.to(device), tgt.to(device)
+      out = model(src, tgt[:, :-1])
+      tgt = tgt[:, 1:].contiguous().view(-1)
+      loss = criterion(out, tgt)
+      total_loss += loss.item()
+      print(f"iter: {i}, loss: {loss.item():.4f}")
+  return total_loss / len(dataloader)
 
-def greedy_search(model, src, max_length=50):
-  pass
+@torch.no_grad()
+def greedy_search(model, src_sentence, src_vocab, tgt_vocab, sos_index, eos_index, max_length=50):
+  model.eval()
+  src_tokens = torch.tensor([src_vocab[token] for token in word_tokenize(preprocess(src_sentence))], dtype=torch.long)
+  tgt_tokens = [sos_index]
+  enc_out = model.encoder(src_tokens, src_mask=None) # no mask
+
+  for _ in range(max_length):
+    tgt_tensor = torch.tensor(tgt_tokens).unsqueeze(0).to(device) # (1, tgt_length)
+    tgt_mask = model._get_tgt_mask(tgt_tensor) # generate target mask as we append token
+    out = model.decoder(tgt_tensor, enc_out, src_mask=None, tgt_mask=tgt_mask)
+    next_token = out[:, -1, :].argmax(dim=-1).item()
+    tgt_tokens.append(next_token)
+    if next_token == eos_index:
+      break
+    
+  return [tgt_vocab[token] for token in tgt_tokens[1:]] # exclude sos token
