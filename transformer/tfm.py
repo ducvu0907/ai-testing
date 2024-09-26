@@ -2,12 +2,12 @@ import torch
 from nltk.tokenize import word_tokenize
 import matplotlib.pyplot as plt
 import seaborn as sns
-import numpy as np
 import torch.utils
 import torch.utils.data
-import tqdm
+from tqdm import tqdm
 import re
 import math
+sns.set_theme(style="whitegrid", palette="pastel")
 
 device = torch.device("cuda" if torch.cpu.is_available() else "cpu")
 pad_token = "<pad>"
@@ -184,9 +184,9 @@ class EncoderLayer(torch.nn.Module):
     return x # (batch_size, seq_length, d_model)
 
 class Encoder(torch.nn.Module):
-  def __init__(self, n_layer, n_head, vocab_size, d_model, d_ff, src_max_len, dropout_rate):
+  def __init__(self, n_layer, n_head, vocab_size, d_model, d_ff, src_max_len, dropout_rate, pad_index):
     super(Encoder, self).__init__()
-    self.embedding = torch.nn.Embedding(vocab_size, d_model)
+    self.embedding = torch.nn.Embedding(vocab_size, d_model, padding_idx=pad_index)
     self.pos_encoding = PositionalEncoding(d_model, src_max_len)
     self.layers = torch.nn.ModuleList([EncoderLayer(n_head, d_model, d_ff, dropout_rate) for _ in range(n_layer)])
 
@@ -229,16 +229,16 @@ class DecoderLayer(torch.nn.Module):
     return x
 
 class Decoder(torch.nn.Module):
-  def __init__(self, n_layer, n_head, vocab_size, d_model, d_ff, tgt_max_len, dropout_rate):
+  def __init__(self, n_layer, n_head, vocab_size, d_model, d_ff, tgt_max_len, dropout_rate, pad_index):
     super(Decoder, self).__init__()
-    self.embedding = torch.nn.Embedding(vocab_size, d_model)
+    self.embedding = torch.nn.Embedding(vocab_size, d_model, padding_idx=pad_index)
     self.pos_encoding = PositionalEncoding(d_model, tgt_max_len)
     self.layers = torch.nn.ModuleList([DecoderLayer(n_head, d_model, d_ff, dropout_rate) for _ in range(n_layer)])
     self.fc = torch.nn.Linear(d_model, vocab_size)
     self.softmax = torch.nn.Softmax(dim=-1)
 
   # training: target sentence + self masked attention + cross attention
-  # inference: start with sos token, generate token by token, dynamic masked attention, cross attention until eos or max length
+  # inference: start with sos token, generate token by token, dynamically mask attention, cross attention until eos or max length
   def forward(self, x, enc_out, src_mask, tgt_mask):
     # x: (batch_size, seq_length)
     x = self.embedding(x) + self.pos_encoding(x) # (batch_size, seq_length, d_model)
@@ -252,15 +252,17 @@ class Transformer(torch.nn.Module):
   def __init__(self, enc_vocab_size, dec_vocab_size, d_model, n_layer, n_head, src_max_len, tgt_max_len, d_ff, dropout_rate, pad_index):
     super(Transformer, self).__init__()
     self.pad_index = pad_index
-    self.encoder = Encoder(n_layer, n_head, enc_vocab_size, d_model, d_ff, src_max_len, dropout_rate)
-    self.decoder = Decoder(n_layer, n_head, dec_vocab_size, d_model, d_ff, tgt_max_len, dropout_rate)
+    self.encoder = Encoder(n_layer, n_head, enc_vocab_size, d_model, d_ff, src_max_len, dropout_rate, pad_index)
+    self.decoder = Decoder(n_layer, n_head, dec_vocab_size, d_model, d_ff, tgt_max_len, dropout_rate, pad_index)
 
+  @staticmethod
   def _get_src_mask(self, src):
     # src: (batch_size, src_length)
     src_mask = (src == self.pad_index).unsqueeze(1).unsqueeze(2) # (batch_size, 1, 1, src_len)
     # broadcast -> (batch_size, n_head, src_len, src_len)
     return src_mask
 
+  @staticmethod
   def _get_tgt_mask(self, tgt):
     # tgt: (batch_size, tgt_length)
     tgt_len = tgt.shape[1]
@@ -270,8 +272,8 @@ class Transformer(torch.nn.Module):
 
   def forward(self, src, tgt):
     # src, tgt: (batch_size, seq_length)
-    src_mask = self._get_src_mask(src)
-    tgt_mask = self._get_tgt_mask(tgt)
+    src_mask = Transformer._get_src_mask(src)
+    tgt_mask = Transformer._get_tgt_mask(tgt)
     enc_out = self.encoder(src, src_mask)
     dec_out = self.decoder(tgt, enc_out, src_mask, tgt_mask)
     return dec_out # (batch_size, tgt_length, vocab_size)
@@ -318,11 +320,17 @@ def greedy_search(model, src_sentence, src_vocab, tgt_vocab, sos_index, eos_inde
 
   for _ in range(max_length):
     tgt_tensor = torch.tensor(tgt_tokens).unsqueeze(0).to(device) # (1, tgt_length)
-    tgt_mask = model._get_tgt_mask(tgt_tensor) # generate target mask as we append token
+    tgt_mask = Transformer._get_tgt_mask(tgt_tensor) # generate target mask as we append token
     out = model.decoder(tgt_tensor, enc_out, src_mask=None, tgt_mask=tgt_mask)
     next_token = out[:, -1, :].argmax(dim=-1).item()
-    tgt_tokens.append(next_token)
+
     if next_token == eos_index:
       break
+
+    tgt_tokens.append(next_token)
     
-  return [tgt_vocab[token] for token in tgt_tokens[1:]] # exclude sos token
+  return ' '.join([tgt_vocab[token] for token in tgt_tokens[1:]]) # exclude the sos token
+
+# TODO: visualize attentions
+def plot_attentions(source, target, attentions):
+  pass
