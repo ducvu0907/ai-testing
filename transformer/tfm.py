@@ -331,6 +331,11 @@ def greedy_search(model, src_sentence, src_vocab, tgt_vocab, sos_index, eos_inde
     
   return ' '.join([tgt_vocab[token] for token in tgt_tokens[1:]]) # exclude the sos token
 
-# TODO: visualize attentions
 def plot_attentions(source, target, attentions):
-  pass
+  # attentions: (q_length, k_length)
+  plt.figure(figsize=(16, 10))
+  sns.heatmap(attentions, xticklabels=source.lower(), yticklabels=target, cmap="viridis")
+  plt.xlabel("input text")
+  plt.ylabel("output text")
+  plt.show()
+
