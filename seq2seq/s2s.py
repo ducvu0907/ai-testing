@@ -326,9 +326,9 @@ def greedy_decode(model, sentence, max_length=50):
   target_tokens = [de_itos[id] for id in target_ids]
   return target_tokens, attentions
 
-def visualize_attention_scores(source, target, attentions):
+def visualize_attention_scores(source, attentions):
   plt.figure(figsize=(16, 10))
-  sns.heatmap(attentions, xticklabels=source.lower(), yticklabels=target, cmap="viridis")
+  sns.heatmap(attentions, xticklabels=source, yticklabels=target, cmap="viridis")
   plt.xlabel("input text")
   plt.ylabel("output text")
   plt.show()
