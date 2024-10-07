@@ -328,7 +328,7 @@ def greedy_decode(model, sentence, max_length=50):
 
 def visualize_attention_scores(source, attentions):
   plt.figure(figsize=(16, 10))
-  sns.heatmap(attentions, xticklabels=source, yticklabels=target, cmap="viridis")
+  sns.heatmap(attentions, xticklabels=source, yticklabels=source, cmap="viridis")
   plt.xlabel("input text")
   plt.ylabel("output text")
   plt.show()
