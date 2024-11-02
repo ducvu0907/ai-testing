@@ -256,14 +256,14 @@ class Transformer(torch.nn.Module):
     self.decoder = Decoder(n_layer, n_head, dec_vocab_size, d_model, d_ff, tgt_max_len, dropout_rate, pad_index)
 
   @staticmethod
-  def _get_src_mask(self, src):
+  def get_src_mask(self, src):
     # src: (batch_size, src_length)
     src_mask = (src == self.pad_index).unsqueeze(1).unsqueeze(2) # (batch_size, 1, 1, src_len)
     # broadcast -> (batch_size, n_head, src_len, src_len)
     return src_mask
 
   @staticmethod
-  def _get_tgt_mask(self, tgt):
+  def get_tgt_mask(self, tgt):
     # tgt: (batch_size, tgt_length)
     tgt_len = tgt.shape[1]
     tgt_pad_mask = (tgt == self.pad_index).unsqueeze(1).unsqueeze(3) # (batch_size, 1, tgt_len, 1)
@@ -272,8 +272,8 @@ class Transformer(torch.nn.Module):
 
   def forward(self, src, tgt):
     # src, tgt: (batch_size, seq_length)
-    src_mask = Transformer._get_src_mask(src)
-    tgt_mask = Transformer._get_tgt_mask(tgt)
+    src_mask = Transformer.get_src_mask(src)
+    tgt_mask = Transformer.get_tgt_mask(tgt)
     enc_out = self.encoder(src, src_mask)
     dec_out = self.decoder(tgt, enc_out, src_mask, tgt_mask)
     return dec_out # (batch_size, tgt_length, vocab_size)
@@ -320,7 +320,7 @@ def greedy_search(model, src_sentence, src_vocab, tgt_vocab, sos_index, eos_inde
 
   for _ in range(max_length):
     tgt_tensor = torch.tensor(tgt_tokens).unsqueeze(0).to(device) # (1, tgt_length)
-    tgt_mask = Transformer._get_tgt_mask(tgt_tensor) # generate target mask as we append token
+    tgt_mask = Transformer.get_tgt_mask(tgt_tensor) # generate target mask as we append token
     out = model.decoder(tgt_tensor, enc_out, src_mask=None, tgt_mask=tgt_mask)
     next_token = out[:, -1, :].argmax(dim=-1).item()
 
