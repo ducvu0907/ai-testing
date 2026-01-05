@@ -9,7 +9,7 @@ import re
 import math
 sns.set_theme(style="whitegrid", palette="pastel")
 
-device = torch.device("cuda" if torch.cpu.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 pad_token = "<pad>"
 sos_token = "<sos>"
 eos_token = "<eos>"
@@ -52,14 +52,14 @@ def load_data(src_path, tgt_path):
 def get_collate_fn(pad_index):
   def collate_fn(data):
     src, tgt = zip(*data)
-    src_padded = torch.nn.utils.rnn.pad_sequence(src, batch_first=True, padding_value=pad_index)
-    tgt_padded = torch.nn.utils.rnn.pad_sequence(tgt, batch_first=True, padding_value=pad_index)
+    src_padded = torch.nn.utils.rnn.pad_sequence(list(src), batch_first=True, padding_value=pad_index)
+    tgt_padded = torch.nn.utils.rnn.pad_sequence(list(tgt), batch_first=True, padding_value=pad_index)
     return src_padded, tgt_padded
   return collate_fn
 
 def get_data_loader(src_path, tgt_path, src_vocab, tgt_vocab, batch_size, pad_index, shuffle):
   src_data, tgt_data = load_data(src_path, tgt_path)
-  dataset = NMTDataset(src_data, tgt_data, src_vocab, tgt_vocab, pad_index)
+  dataset = NMTDataset(src_data, tgt_data, src_vocab, tgt_vocab)
   data_loader = torch.utils.data.DataLoader(dataset, batch_size, shuffle, collate_fn=get_collate_fn(pad_index))
   return data_loader
 
@@ -113,7 +113,7 @@ class MultiHeadAttention(torch.nn.Module):
     # v: (batch_size, n_head, v_length, d_v)
     d_k = k.shape[-1]
     scores = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(d_k) # (batch_size, n_head, q_length, k_length)
-    if mask:
+    if mask is not None:
       scores = scores.masked_fill(mask == 0, float("-1e12")) # masked attention
     attn_weights = torch.nn.functional.softmax(scores, dim=-1) # (batch_size, n_head, q_length, k_length)
     out = torch.matmul(attn_weights, v) # (batch_size, n_head, q_length, d_v)
@@ -121,7 +121,7 @@ class MultiHeadAttention(torch.nn.Module):
 
   # split into n heads
   def split(self, x):
-    # x: (batch_size, seq_length, d_model)
+    # (batch_size, seq_length, d_model)
     batch_size, seq_length, d_model = x.shape
     d_k = d_model // self.n_head
     x = x.view(batch_size, seq_length, self.n_head, d_k).transpose(1, 2)
@@ -129,7 +129,7 @@ class MultiHeadAttention(torch.nn.Module):
 
   # inverse heads splitting
   def concat(self, x):
-    # x: (batch_size, n_head, seq_length, d_K)
+    # (batch_size, n_head, seq_length, d_k)
     batch_size, n_head, seq_length, d_k = x.shape
     d_model = d_k * n_head
     x = x.transpose(1, 2).contiguous().view(batch_size, seq_length, d_model)
@@ -255,25 +255,23 @@ class Transformer(torch.nn.Module):
     self.encoder = Encoder(n_layer, n_head, enc_vocab_size, d_model, d_ff, src_max_len, dropout_rate, pad_index)
     self.decoder = Decoder(n_layer, n_head, dec_vocab_size, d_model, d_ff, tgt_max_len, dropout_rate, pad_index)
 
-  @staticmethod
   def get_src_mask(self, src):
     # src: (batch_size, src_length)
     src_mask = (src == self.pad_index).unsqueeze(1).unsqueeze(2) # (batch_size, 1, 1, src_len)
     # broadcast -> (batch_size, n_head, src_len, src_len)
     return src_mask
 
-  @staticmethod
   def get_tgt_mask(self, tgt):
     # tgt: (batch_size, tgt_length)
     tgt_len = tgt.shape[1]
-    tgt_pad_mask = (tgt == self.pad_index).unsqueeze(1).unsqueeze(3) # (batch_size, 1, tgt_len, 1)
-    tgt_future_mask = torch.tril(torch.ones(tgt_len, tgt_len)) # (tgt_len, tgt_len)
-    return tgt_pad_mask & tgt_future_mask # (batch_size, 1, tgt_len, tgt_len), broadcast -> (batch_size, n_head, tgt_len, tgt_len)
+    tgt_pad_mask = (tgt != self.pad_index).unsqueeze(1).unsqueeze(3) # (batch_size, 1, tgt_len, 1)
+    tgt_future_mask = torch.tril(torch.ones(tgt_len, tgt_len, device=tgt.device, dtype=torch.bool)) # (tgt_len, tgt_len)
+    return (tgt_pad_mask & tgt_future_mask).float() # (batch_size, 1, tgt_len, tgt_len), broadcast -> (batch_size, n_head, tgt_len, tgt_len)
 
   def forward(self, src, tgt):
     # src, tgt: (batch_size, seq_length)
-    src_mask = Transformer.get_src_mask(src)
-    tgt_mask = Transformer.get_tgt_mask(tgt)
+    src_mask = self.get_src_mask(src)
+    tgt_mask = self.get_tgt_mask(tgt)
     enc_out = self.encoder(src, src_mask)
     dec_out = self.decoder(tgt, enc_out, src_mask, tgt_mask)
     return dec_out # (batch_size, tgt_length, vocab_size)
@@ -315,20 +313,22 @@ def eval_fn(model, dataloader, criterion):
 def greedy_search(model, src_sentence, src_vocab, tgt_vocab, sos_index, eos_index, max_length=50):
   model.eval()
   src_tokens = torch.tensor([src_vocab[token] for token in word_tokenize(preprocess(src_sentence))], dtype=torch.long)
+  src_tokens = src_tokens.unsqueeze(0).to(device) # (1, src_length)
   tgt_tokens = [sos_index]
-  enc_out = model.encoder(src_tokens, src_mask=None) # no mask
+  src_mask = model.get_src_mask(src_tokens)
+  enc_out = model.encoder(src_tokens, src_mask)
 
   for _ in range(max_length):
     tgt_tensor = torch.tensor(tgt_tokens).unsqueeze(0).to(device) # (1, tgt_length)
-    tgt_mask = Transformer.get_tgt_mask(tgt_tensor) # generate target mask as we append token
-    out = model.decoder(tgt_tensor, enc_out, src_mask=None, tgt_mask=tgt_mask)
+    tgt_mask = model.get_tgt_mask(tgt_tensor)
+    out = model.decoder(tgt_tensor, enc_out, src_mask, tgt_mask)
     next_token = out[:, -1, :].argmax(dim=-1).item()
 
     if next_token == eos_index:
       break
 
     tgt_tokens.append(next_token)
-    
+
   return ' '.join([tgt_vocab[token] for token in tgt_tokens[1:]]) # exclude the sos token
 
 def plot_attentions(source, attentions):
