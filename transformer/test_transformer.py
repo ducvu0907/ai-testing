@@ -4,9 +4,9 @@ import nltk
 
 # FIX: Download required NLTK data for tokenization (newer NLTK versions use punkt_tab)
 try:
-  nltk.data.find('tokenizers/punkt_tab')
+    nltk.data.find("tokenizers/punkt_tab")
 except LookupError:
-  nltk.download('punkt_tab', quiet=True)
+    nltk.download("punkt_tab", quiet=True)
 
 # Test basic functionality
 print("Testing Transformer implementation...")
@@ -27,7 +27,9 @@ n_head = 8
 mha = tfm.MultiHeadAttention(d_model, n_head)
 x = torch.randn(2, 10, d_model)
 output = mha(x, x, x)
-assert output.shape == (2, 10, d_model), f"Expected (2, 10, {d_model}), got {output.shape}"
+assert output.shape == (2, 10, d_model), (
+    f"Expected (2, 10, {d_model}), got {output.shape}"
+)
 print("✓ MultiHeadAttention output shape correct")
 
 # Test 3: PositionWiseFeedForward
@@ -36,7 +38,9 @@ d_ff = 2048
 ffn = tfm.PositionWiseFeedForward(d_model, d_ff, dropout_rate=0.1)
 x = torch.randn(2, 10, d_model)
 output = ffn(x)
-assert output.shape == (2, 10, d_model), f"Expected (2, 10, {d_model}), got {output.shape}"
+assert output.shape == (2, 10, d_model), (
+    f"Expected (2, 10, {d_model}), got {output.shape}"
+)
 print("✓ PositionWiseFeedForward output shape correct")
 
 # Test 4: Encoder
@@ -46,32 +50,55 @@ n_layer = 2
 src_max_len = 50
 dropout_rate = 0.1
 pad_index = 0
-encoder = tfm.Encoder(n_layer, n_head, vocab_size, d_model, d_ff, src_max_len, dropout_rate, pad_index)
+encoder = tfm.Encoder(
+    n_layer, n_head, vocab_size, d_model, d_ff, src_max_len, dropout_rate, pad_index
+)
 src = torch.randint(0, vocab_size, (2, 10))
 src_mask = (src == pad_index).unsqueeze(1).unsqueeze(2)
 output = encoder(src, src_mask)
-assert output.shape == (2, 10, d_model), f"Expected (2, 10, {d_model}), got {output.shape}"
+assert output.shape == (2, 10, d_model), (
+    f"Expected (2, 10, {d_model}), got {output.shape}"
+)
 print("✓ Encoder output shape correct")
 
 # Test 5: Decoder
 print("\n5. Testing Decoder")
 tgt_max_len = 50
-decoder = tfm.Decoder(n_layer, n_head, vocab_size, d_model, d_ff, tgt_max_len, dropout_rate, pad_index)
+decoder = tfm.Decoder(
+    n_layer, n_head, vocab_size, d_model, d_ff, tgt_max_len, dropout_rate, pad_index
+)
 tgt = torch.randint(0, vocab_size, (2, 10))
 enc_out = torch.randn(2, 10, d_model)
-tgt_mask = torch.tril(torch.ones(10, 10)).unsqueeze(0).unsqueeze(0).expand(2, -1, -1, -1)
+tgt_mask = (
+    torch.tril(torch.ones(10, 10)).unsqueeze(0).unsqueeze(0).expand(2, -1, -1, -1)
+)
 src_mask = (src == pad_index).unsqueeze(1).unsqueeze(2)
 output = decoder(tgt, enc_out, src_mask, tgt_mask)
-assert output.shape == (2, 10, vocab_size), f"Expected (2, 10, {vocab_size}), got {output.shape}"
+assert output.shape == (2, 10, vocab_size), (
+    f"Expected (2, 10, {vocab_size}), got {output.shape}"
+)
 print("✓ Decoder output shape correct")
 
 # Test 6: Transformer
 print("\n6. Testing Transformer")
-transformer = tfm.Transformer(vocab_size, vocab_size, d_model, n_layer, n_head, src_max_len, tgt_max_len, d_ff, dropout_rate, pad_index)
+transformer = tfm.Transformer(
+    vocab_size,
+    vocab_size,
+    d_model,
+    n_layer,
+    n_head,
+    src_max_len,
+    tgt_max_len,
+    d_ff,
+    dropout_rate,
+    pad_index,
+)
 src = torch.randint(0, vocab_size, (2, 10))
 tgt = torch.randint(0, vocab_size, (2, 10))
 output = transformer(src, tgt)
-assert output.shape == (2, 10, vocab_size), f"Expected (2, 10, {vocab_size}), got {output.shape}"
+assert output.shape == (2, 10, vocab_size), (
+    f"Expected (2, 10, {vocab_size}), got {output.shape}"
+)
 print("✓ Transformer output shape correct")
 
 # Test 7: Data preprocessing
@@ -86,7 +113,9 @@ print("✓ Preprocessing works correctly")
 print("\n8. Testing tokenization")
 sentences = ["Hello world!", "How are you?"]
 tokens_list = tfm.tokenize(sentences)
-assert tokens_list[0][0] == "<sos>" and tokens_list[0][-1] == "<eos>", "Tokens should include SOS and EOS"
+assert tokens_list[0][0] == "<sos>" and tokens_list[0][-1] == "<eos>", (
+    "Tokens should include SOS and EOS"
+)
 print("✓ Tokenization works correctly")
 
 # Test 9: Vocabulary building
@@ -94,10 +123,13 @@ print("\n9. Testing vocabulary building")
 special_tokens = ["<pad>", "<sos>", "<eos>", "<unk>"]
 vocab = tfm.build_vocab(tokens_list, special_tokens)
 # FIX: Adjust assertion to account for tokens that might already be in special_tokens or overlap
-expected_unique = len(set([t for tokens in tokens_list for t in tokens])) + len(special_tokens)
+expected_unique = len(set([t for tokens in tokens_list for t in tokens])) + len(
+    special_tokens
+)
 # Allow for overlap between tokens and special_tokens
-assert len(vocab) >= len(special_tokens) and len(vocab) <= expected_unique, \
-  f"Vocab size {len(vocab)} should be between {len(special_tokens)} and {expected_unique}"
+assert len(vocab) >= len(special_tokens) and len(vocab) <= expected_unique, (
+    f"Vocab size {len(vocab)} should be between {len(special_tokens)} and {expected_unique}"
+)
 print("✓ Vocabulary building works correctly")
 
 # Test 10: Forward pass with actual data
@@ -109,6 +141,6 @@ output = transformer(src, tgt)
 assert output.shape == (batch_size, 20, vocab_size)
 print("✓ Full forward pass works correctly")
 
-print("\n" + "="*50)
+print("\n" + "=" * 50)
 print("All tests passed! ✓")
-print("="*50)
+print("=" * 50)
